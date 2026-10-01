@@ -21,3 +21,22 @@ bank-failure-project/
 │   └── figures/
 │
 └── README.md
+
+
+Run the following:
+
+install.packages("usethis")   # Only if not already installed
+library(usethis)
+edit_r_environ()
+
+Add the following:
+FRED_API_KEY=your_fred_api_key
+FDIC_API_KEY=your_fdic_api_key
+
+Save the file: Cmd + S
+
+Restart R
+
+Run the following to make sure it's saved:
+FRED_API_KEY=your_fred_api_key
+FDIC_API_KEY=your_fdic_api_key
