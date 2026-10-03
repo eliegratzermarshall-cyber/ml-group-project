@@ -138,13 +138,18 @@ financial_fields <- c(
   "LNLSDEPR",   # Loans / deposits
   "DEP",        # Total deposits
   "DEPUNINS",   # Uninsured deposits
+  "DEPINS",     # Insured deposits            
+  "BRO",        # Brokered deposits           
+  "INTEXPY",    # Funding cost                
   
   # SIZE
   "ASSET",      # Total assets
   
   # LOAN EXPOSURE
   "LNRE",       # Real-estate loans
+  "LNRECONS",   # Construction loans        
   "LNLSNET",    # Net loans
+  "LNATRES",    # Loan-loss reserves          
   
   # SECURITIES EXPOSURE
   "SC"          # Securities
@@ -256,29 +261,27 @@ message(
 )
 
 # Download FDIC Institution Data
-message(
-  "Downloading FDIC institution data..."
+# Es gibt ca. 28'000 Institute, pro Abfrage kommen max. 10'000.
+# Deshalb laden wir in drei Teilen und setzen sie zusammen.
+institution_fields <- c(
+  "CERT", "NAME", "BKCLASS", "STALP",
+  "STNAME", "ACTIVE", "ESTYMD", "ENDEFYMD"
 )
 
+institution_parts <- lapply(c(0, 10000, 20000), function(start) {
+  get_institutions(
+    api_key = FDIC_API_KEY,
+    fields  = institution_fields,
+    sort_by = "CERT",
+    limit   = 10000,
+    offset  = start
+  )
+})
 
-fdic_institutions_raw <- get_institutions(
-  api_key = FDIC_API_KEY,
+fdic_institutions_raw <- bind_rows(institution_parts)
   
-  fields = c(
-    "CERT",
-    "NAME",
-    "BKCLASS",
-    "STALP",
-    "STNAME",
-    "ACTIVE",
-    "ESTYMD",
-    "ENDEFYMD"
-  ),
-  
-  sort_by = "CERT",
-  
-  limit = 10000
-)
+
+
 
 
 message(
