@@ -1,0 +1,2 @@
+"model","accuracy","recall","precision","f1","specificity","roc_auc"
+"Logistic Regression",0.99957206436152,0,NA,NA,1,0.92717032470436
