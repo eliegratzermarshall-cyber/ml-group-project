@@ -260,28 +260,139 @@ message(
   "raw_fdic_financials written to DuckDB"
 )
 
+
 # Download FDIC Institution Data
-# Es gibt ca. 28'000 Institute, pro Abfrage kommen max. 10'000.
-# Deshalb laden wir in drei Teilen und setzen sie zusammen.
+
+message("Downloading FDIC institution data...")
+
 institution_fields <- c(
-  "CERT", "NAME", "BKCLASS", "STALP",
-  "STNAME", "ACTIVE", "ESTYMD", "ENDEFYMD"
+  "CERT",
+  "NAME",
+  "BKCLASS",
+  "STALP",
+  "STNAME",
+  "ACTIVE",
+  "ESTYMD",
+  "ENDEFYMD"
 )
 
-institution_parts <- lapply(c(0, 10000, 20000), function(start) {
-  get_institutions(
-    api_key = FDIC_API_KEY,
-    fields  = institution_fields,
-    sort_by = "CERT",
-    limit   = 10000,
-    offset  = start
+# Check requested fields
+invalid_institution_fields <- setdiff(
+  institution_fields,
+  fdic::fdic_institutions$field
+)
+
+if (length(invalid_institution_fields) > 0) {
+  stop(
+    paste(
+      "Invalid FDIC institution fields:",
+      paste(invalid_institution_fields, collapse = ", ")
+    )
   )
-})
+}
 
-fdic_institutions_raw <- bind_rows(institution_parts)
+message("All requested institution fields are valid.")
+
+
+# Determine CERT range required by our financial dataset
+certs_needed <- sort(
+  unique(
+    as.integer(fdic_financials$CERT)
+  )
+)
+
+certs_needed <- certs_needed[
+  !is.na(certs_needed)
+]
+
+message(
+  "Unique CERTs needed: ",
+  length(certs_needed)
+)
+
+min_cert <- min(certs_needed)
+max_cert <- max(certs_needed)
+
+# Split approximately in half based on the observed CERTs
+split_cert <- certs_needed[
+  ceiling(length(certs_needed) / 2)
+]
+
+message(
+  "CERT range: ",
+  min_cert,
+  " to ",
+  max_cert
+)
+
+message(
+  "Splitting institution query at CERT ",
+  split_cert
+)
+
+
+
+# First half
+institutions_part1 <- get_institutions(
+  api_key = FDIC_API_KEY,
   
+  filters = paste0(
+    "CERT:[",
+    min_cert,
+    " TO ",
+    split_cert,
+    "]"
+  ),
+  
+  fields = institution_fields,
+  
+  sort_by = "CERT",
+  
+  limit = 10000
+)
 
 
+
+# Second half
+institutions_part2 <- get_institutions(
+  api_key = FDIC_API_KEY,
+  
+  filters = paste0(
+    "CERT:{",
+    split_cert,
+    " TO ",
+    max_cert,
+    "]"
+  ),
+  
+  fields = institution_fields,
+  
+  sort_by = "CERT",
+  
+  limit = 10000
+)
+
+
+
+# Combine both API results
+fdic_institutions_raw <- bind_rows(
+  institutions_part1,
+  institutions_part2
+) %>%
+  mutate(
+    CERT = as.integer(CERT)
+  ) %>%
+  distinct(
+    CERT,
+    .keep_all = TRUE
+  )
+
+
+# Keep only banks that actually appear in our financial panel
+fdic_institutions_raw <- fdic_institutions_raw %>%
+  filter(
+    CERT %in% certs_needed
+  )
 
 
 message(
@@ -294,13 +405,35 @@ message(
 )
 
 
+# Check coverage
+missing_certs <- setdiff(
+  certs_needed,
+  fdic_institutions_raw$CERT
+)
+
+message(
+  "CERTs missing institution information: ",
+  length(missing_certs)
+)
+
+if (length(missing_certs) > 0) {
+  
+  warning(
+    paste(
+      length(missing_certs),
+      "banks in the financial panel have no matching institution record."
+    )
+  )
+}
+
+
+# Store in DuckDB
 dbWriteTable(
   con,
   "raw_fdic_institutions",
   fdic_institutions_raw,
   overwrite = TRUE
 )
-
 
 message(
   "raw_fdic_institutions written to DuckDB"
