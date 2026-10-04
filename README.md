@@ -38,6 +38,8 @@ Save the file: Cmd + S
 Restart R
 
 Run the following to make sure it's saved:
+FRED_API_KEY=your_fred_api_key
+FDIC_API_KEY=your_fdic_api_key
 Sys.getenv("FRED_API_KEY")
 Sys.getenv("FDIC_API_KEY")
 

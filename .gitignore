@@ -1,4 +1,18 @@
-.Rproj.user
+# Generated output
+output/
+
+# Environment variables
+.Renviron
+
+# macOS
+.DS_Store
+
+# R session files
+.Rhistory
+.RData
+
+# (Optional) Generated model dataset
+data/model_dataset.csv.Rproj.user
 .Rhistory
 .RData
 .Ruserdata
