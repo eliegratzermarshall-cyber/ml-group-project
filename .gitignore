@@ -1,19 +1,20 @@
-# Generated output
-output/
+# Generated model dataset
+data/model_dataset.csv
 
-# Environment variables
-.Renviron
-
-# macOS
-.DS_Store
+# RStudio
+.Rproj.user
 
 # R session files
 .Rhistory
 .RData
-
-# (Optional) Generated model dataset
-data/model_dataset.csv.Rproj.user
-.Rhistory
-.RData
 .Ruserdata
+.RDataTmp
+
+# macOS
 .DS_Store
+
+# Environment variables
+.Renviron
+
+# Generated output
+output/
