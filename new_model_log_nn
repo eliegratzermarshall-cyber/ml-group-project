@@ -1,7 +1,6 @@
 ################################################################################
 # MODELS_LOGISTIC_NN.R
 # Logistic Regression (Benchmark) and Neural Networks for Bank Failures
-# Standardized Evaluation (matching Random Forest pipeline)
 ################################################################################
 
 # ============================================================
