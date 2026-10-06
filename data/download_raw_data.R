@@ -21,15 +21,12 @@ con <- dbConnect(
 # 2. Check API Keys
 
 FDIC_API_KEY <- Sys.getenv("FDIC_API_KEY")
-FRED_API_KEY <- Sys.getenv("FRED_API_KEY")
+
 
 if (FDIC_API_KEY == "") {
   stop("FDIC_API_KEY not found in .Renviron")
 }
 
-if (FRED_API_KEY == "") {
-  stop("FRED_API_KEY not found in .Renviron")
-}
 
 message("API keys found.")
 
@@ -513,98 +510,6 @@ message(
 )
 
 
-# 6. FRED Data Download
-
-# FRED allows us to request quarterly aggregation directly.
-# We will use quarterly averages for the macro variables.
-
-get_fred_series <- function(series_id,
-                            start_date = "2004-01-01",
-                            end_date   = "2023-12-31",
-                            aggregation = "avg") {
-  
-  response <- request(
-    "https://api.stlouisfed.org/fred/series/observations"
-  ) |>
-    req_url_query(
-      series_id = series_id,
-      api_key = FRED_API_KEY,
-      file_type = "json",
-      observation_start = start_date,
-      observation_end = end_date,
-      frequency = "q",
-      aggregation_method = aggregation
-    ) |>
-    req_perform()
-  
-  data <- resp_body_json(response)
-  
-  tibble(
-    series_id = series_id,
-    date = as.Date(
-      map_chr(data$observations, "date")
-    ),
-    value = suppressWarnings(
-      as.numeric(
-        map_chr(data$observations, "value")
-      )
-    )
-  )
-}
-
-
-# 7. Federal Funds Rate
-
-fedfunds <- get_fred_series(
-  "FEDFUNDS"
-)
-
-message(
-  "FEDFUNDS observations: ",
-  nrow(fedfunds)
-)
-
-
-# 8. Unemployment
-
-unrate <- get_fred_series(
-  "UNRATE"
-)
-
-message(
-  "UNRATE observations: ",
-  nrow(unrate)
-)
-
-
-# 9. Yield Curve
-
-t10y2y <- get_fred_series(
-  "T10Y2Y"
-)
-
-message(
-  "T10Y2Y observations: ",
-  nrow(t10y2y)
-)
-
-# 10. Combine FRED Data
-
-fred_macro <- bind_rows(
-  fedfunds,
-  unrate,
-  t10y2y
-)
-
-dbWriteTable(
-  con,
-  "raw_fred_macro",
-  fred_macro,
-  overwrite = TRUE
-)
-
-message("raw_fred_macro written to DuckDB.")
-
 # 11. Check Database
 
 print(
@@ -616,8 +521,8 @@ print(
 tables <- c(
   "raw_fdic_financials",
   "raw_fdic_institutions",
-  "raw_fdic_failures",
-  "raw_fred_macro"
+  "raw_fdic_failures"
+  
 )
 
 for (table in tables) {
