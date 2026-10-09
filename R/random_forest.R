@@ -149,6 +149,107 @@ rf_default <- randomForest(
 
 print(rf_default)
 
+# ============================================================
+# 8A. OUT-OF-BAG ERROR
+# ============================================================
+
+# Each tree is trained on a bootstrap sample of the training data.
+# Observations not selected for a particular tree are "out-of-bag"
+# (OOB) observations and can be used to evaluate that tree.
+#
+# randomForest automatically stores the OOB error as the forest
+# grows. This allows us to examine whether adding more trees
+# stabilizes the model's prediction error.
+
+oob_error <- rf_default$err.rate
+
+# Inspect final OOB error
+cat("\nFINAL OOB ERROR RATE\n")
+print(tail(oob_error, 1))
+
+
+# Create data frame for plotting
+oob_results <- data.frame(
+  trees = 1:nrow(oob_error),
+  oob_error = oob_error[, "OOB"]
+)
+
+
+# Save OOB results
+write.csv(
+  oob_results,
+  "output/rf_oob_error.csv",
+  row.names = FALSE
+)
+
+
+# Plot OOB error against number of trees
+oob_plot <- ggplot(
+  oob_results,
+  aes(
+    x = trees,
+    y = oob_error
+  )
+) +
+  geom_line() +
+  labs(
+    title = "Random Forest Out-of-Bag Error",
+    subtitle = "Default Random Forest",
+    x = "Number of Trees",
+    y = "OOB Classification Error"
+  ) +
+  theme_minimal()
+
+ggsave(
+  "output/plots/rf_oob_error.png",
+  oob_plot,
+  width = 7,
+  height = 5
+)
+
+# ============================================================
+# OOB ERROR BY NUMBER OF TREES
+# ============================================================
+
+oob_results <- data.frame(
+  trees = 1:nrow(rf_default$err.rate),
+  overall = rf_default$err.rate[, "OOB"],
+  survived = rf_default$err.rate[, "0"],
+  failed = rf_default$err.rate[, "1"]
+)
+
+# Convert to long format for ggplot
+oob_long <- tidyr::pivot_longer(
+  oob_results,
+  cols = c(overall, survived, failed),
+  names_to = "error_type",
+  values_to = "error"
+)
+
+oob_plot <- ggplot(
+  oob_long,
+  aes(
+    x = trees,
+    y = error,
+    linetype = error_type
+  )
+) +
+  geom_line() +
+  labs(
+    title = "Out-of-Bag Error as the Random Forest Grows",
+    x = "Number of Trees",
+    y = "OOB Classification Error",
+    linetype = "Error"
+  ) +
+  theme_minimal()
+
+ggsave(
+  "output/plots/rf_oob_error_by_class.png",
+  oob_plot,
+  width = 8,
+  height = 5
+)
+
 
 # ============================================================
 # 9. PREDICT CLASSES ON TEST DATA
