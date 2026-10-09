@@ -391,6 +391,163 @@ if (run_tuning) {
   load("output/rf_final_fits.RData")
 }
 
+################################################################################
+#8c. Out-of-bag prediction diagnostics
+################################################################################
+#Each tree in a random forest is trained on a bootstrap sample of the
+#training data. Observations not included in a tree's bootstrap sample are
+#"out-of-bag" (OOB) observations.
+#
+#randomForest automatically predicts these observations using only trees
+#for which the observation was OOB. This provides an internal estimate of
+#predictive performance without using the external 2021-2023 test sample.
+
+
+#8c.1 OOB error as the number of trees increases -------------------------------
+
+#err.rate contains the cumulative OOB error after each additional tree.
+#For classification it reports overall OOB error and class-specific errors.
+
+oob_error <- rf_cv10$err.rate
+
+#Inspect column names and final OOB errors
+colnames(oob_error)
+tail(oob_error, 1)
+
+#Save numerical results
+oob_error_df <- data.frame(
+  trees = 1:nrow(oob_error),
+  oob_error
+)
+
+write.csv(
+  oob_error_df,
+  "output/rf_oob_error.csv",
+  row.names = FALSE
+)
+
+
+#Plot overall and class-specific OOB error
+png(
+  "output/plots/rf_oob_error.png",
+  width = 900,
+  height = 700
+)
+
+matplot(
+  1:nrow(oob_error),
+  oob_error,
+  type = "l",
+  lty = 1,
+  lwd = 2,
+  xlab = "Number of trees",
+  ylab = "OOB classification error",
+  main = "Out-of-bag error of final random forest"
+)
+
+legend(
+  "topright",
+  legend = colnames(oob_error),
+  lty = 1,
+  lwd = 2,
+  col = 1:ncol(oob_error)
+)
+
+dev.off()
+
+
+#8c.2 OOB predicted probabilities ----------------------------------------------
+
+#rf_cv10$votes contains OOB class probabilities.
+#For each bank-quarter, these probabilities are based only on trees for which
+#that observation was NOT included in the bootstrap training sample.
+
+oob_prob <- rf_cv10$votes[, "failed"]
+
+#Check distribution
+summary(oob_prob)
+
+
+#8c.3 OOB ROC curve ------------------------------------------------------------
+
+oob_roc <- roc(
+  train_y,
+  oob_prob,
+  levels = c("survived", "failed"),
+  direction = "<",
+  quiet = TRUE
+)
+
+oob_auc <- as.numeric(auc(oob_roc))
+
+cat("\nOOB ROC-AUC:", round(oob_auc, 3), "\n")
+
+png(
+  "output/plots/rf_oob_roc.png",
+  width = 800,
+  height = 700
+)
+
+plot(
+  oob_roc,
+  main = paste(
+    "OOB ROC Curve - Final Random Forest\nAUC =",
+    round(oob_auc, 3)
+  )
+)
+
+abline(
+  a = 0,
+  b = 1,
+  lty = 2
+)
+
+dev.off()
+
+
+#8c.4 OOB precision-recall curve -----------------------------------------------
+
+#PR-AUC is especially informative because failures are extremely rare.
+
+oob_pr <- pr.curve(
+  scores.class0 = oob_prob[train_y == "failed"],
+  scores.class1 = oob_prob[train_y == "survived"],
+  curve = TRUE
+)
+
+oob_pr_auc <- oob_pr$auc.integral
+
+cat("OOB PR-AUC:", round(oob_pr_auc, 4), "\n")
+
+png(
+  "output/plots/rf_oob_pr_curve.png",
+  width = 800,
+  height = 700
+)
+
+plot(
+  oob_pr$curve[, 1],
+  oob_pr$curve[, 2],
+  type = "l",
+  lwd = 2,
+  xlab = "Recall",
+  ylab = "Precision",
+  main = paste(
+    "OOB Precision-Recall Curve\nPR-AUC =",
+    round(oob_pr_auc, 4)
+  )
+)
+
+#No-skill PR-AUC = prevalence of failures in training sample
+train_failure_rate <- mean(train_y == "failed")
+
+abline(
+  h = train_failure_rate,
+  lty = 2
+)
+
+dev.off()
+
 #8c. Tuning tables -------------------------------------------------------------
 
 #ROC-AUC for every ntree/mtry combination. Sens = recall of failed banks.
