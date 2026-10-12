@@ -648,6 +648,83 @@ thr_loocv <- pick_threshold(rf_loocv)
 thr_cv10
 thr_loocv
 
+################################################################################
+#10b. Early-warning threshold trade-off
+################################################################################
+
+threshold_grid <- seq(0, 0.10, by = 0.001)
+
+threshold_results <- data.frame(
+  threshold = threshold_grid,
+  recall = NA,
+  false_alarm_rate = NA
+)
+
+for (i in seq_along(threshold_grid)) {
+  thr <- threshold_grid[i]
+  pred <- factor(
+    ifelse(oob_prob >= thr, "failed", "survived"),
+    levels = c("failed", "survived")
+  )
+  cm <- confusionMatrix(
+    pred,
+    train_y,
+    positive = "failed"
+  )
+  threshold_results$recall[i] <-
+    cm$byClass["Recall"]
+  threshold_results$false_alarm_rate[i] <-
+    1 - cm$byClass["Specificity"]
+}
+
+write.csv(
+  threshold_results,
+  "output/rf_threshold_tradeoff.csv",
+  row.names = FALSE
+)
+
+png(
+  "output/plots/rf_threshold_tradeoff.png",
+  width = 900,
+  height = 700
+)
+
+plot(
+  threshold_results$threshold,
+  threshold_results$recall,
+  type = "l",
+  lwd = 2,
+  ylim = c(0, 1),
+  xlab = "Failure probability threshold",
+  ylab = "Rate",
+  main = "Early-warning threshold trade-off"
+)
+
+lines(
+  threshold_results$threshold,
+  threshold_results$false_alarm_rate,
+  lwd = 2,
+  lty = 2
+)
+
+abline(
+  v = thr_cv10,
+  lty = 3
+)
+
+legend(
+  "right",
+  legend = c(
+    "Recall (failures detected)",
+    "False-alarm rate",
+    "Selected threshold"
+  ),
+  lty = c(1, 2, 3),
+  lwd = c(2, 2, 1)
+)
+
+dev.off()
+
 
 ################################################################################
 #11. (e) Prediction accuracy: confusion matrices, recall, precision, F1
@@ -668,10 +745,22 @@ model_probs <- list(prob_base, prob_cv10, prob_cv10, prob_loocv, prob_loocv)
 model_thr   <- c(0.5, 0.5, thr_cv10, 0.5, thr_loocv)
 n_models    <- length(model_names)
 
-results <- data.frame(model = model_names, threshold = model_thr,
-                      accuracy = 0, balanced_accuracy = 0, recall = 0,
-                      precision = 0, f1 = 0, specificity = 0,
-                      roc_auc = 0, pr_auc = 0)
+results <- data.frame(
+  model = model_names,
+  threshold = model_thr,
+  true_positives = 0,
+  missed_failures = 0,
+  false_alarms = 0,
+  true_negatives = 0,
+  accuracy = 0,
+  balanced_accuracy = 0,
+  recall = 0,
+  precision = 0,
+  f1 = 0,
+  specificity = 0,
+  roc_auc = 0,
+  pr_auc = 0
+)
 cm_tables <- vector("list", n_models)
 
 for (j in 1:n_models) {
@@ -687,6 +776,10 @@ for (j in 1:n_models) {
   results$precision[j]         <- cm$byClass["Precision"]   # NA if no bank is flagged
   results$f1[j]                <- cm$byClass["F1"]
   results$specificity[j]       <- cm$byClass["Specificity"]
+  results$true_positives[j]  <- cm$table["failed", "failed"]
+  results$missed_failures[j] <- cm$table["survived", "failed"]
+  results$false_alarms[j]    <- cm$table["failed", "survived"]
+  results$true_negatives[j]  <- cm$table["survived", "survived"]
   results$roc_auc[j]           <- auc_fn(test_y, p)
   results$pr_auc[j]            <- pr.curve(scores.class0 = p[test_y == "failed"],
                                            scores.class1 = p[test_y == "survived"])$auc.integral
@@ -777,6 +870,40 @@ cat("Recall at tuned threshold:", round(final_row$recall, 3),
     "; precision:", round(final_row$precision, 3), "\n")
 cat("Accuracy:", round(final_row$accuracy, 4),
     "vs all-survive accuracy:", round(naive_accuracy, 4), "\n")
+
+################################################################################
+#12b. Early-warning-system evaluation
+################################################################################
+#Interpretation:
+#Each bank-quarter receives a predicted probability of failure within the
+#following 12 months. If that probability exceeds the selected threshold,
+#the bank is flagged for supervisory attention.
+#
+#For an early-warning system, a missed failure (false negative) is considered
+#more costly than a false alarm (false positive), because a false alarm leads
+#to additional supervisory attention whereas a missed failure means that an
+#actually failing bank receives no warning.
+
+ews_row <- results[
+  results$model == "10-fold CV (tuned threshold)",
+]
+
+cat("\nEARLY-WARNING SYSTEM EVALUATION\n")
+cat("--------------------------------\n")
+cat("Prediction horizon: 12 months\n")
+cat("Intended user: bank supervisors/regulators\n")
+cat("Warning threshold:", round(ews_row$threshold, 4), "\n\n")
+
+cat("Actual failures:", sum(test_y == "failed"), "\n")
+cat("Failures correctly flagged:", ews_row$true_positives, "\n")
+cat("Missed failures:", ews_row$missed_failures, "\n")
+cat("False alarms:", ews_row$false_alarms, "\n")
+cat("Correctly identified survivors:", ews_row$true_negatives, "\n\n")
+
+cat("Recall:", round(ews_row$recall, 3), "\n")
+cat("Precision:", round(ews_row$precision, 3), "\n")
+cat("ROC-AUC:", round(ews_row$roc_auc, 3), "\n")
+cat("PR-AUC:", round(ews_row$pr_auc, 3), "\n")
 
 
 ################################################################################
