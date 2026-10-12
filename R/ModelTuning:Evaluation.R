@@ -265,7 +265,7 @@ make_seeds <- function(n_resamples) {
 #Fixed folds, so every combination is compared on exactly the same splits.
 #createFolds() is stratified: every fold contains failures.
 set.seed(123)
-cv_folds <- createFolds(tune_y, k = 10, returnTrain = TRUE)
+cv_folds <- groupKFold(train_data$CERT[tune_idx], k = 10)
 
 ctrl_cv10 <- trainControl(method          = "cv",
                           index           = cv_folds,
