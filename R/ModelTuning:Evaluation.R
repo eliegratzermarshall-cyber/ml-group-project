@@ -154,11 +154,11 @@ rf_ntree_mtry <- list(
     list(loop = loop, submodels = submodels)
   },
   
-    #Grow the forest. No importance here: these forests are only used to compare
-  #mtry/ntree. Importance is computed for the refit on all data (section 8b).
+  #Grow the forest. last = TRUE only for the final model on all training data:
+  #only that model needs the (slow) permutation importance.
   fit = function(x, y, wts, param, lev, last, classProbs, ...) {
     randomForest::randomForest(x = x, y = y, mtry = param$mtry,
-                               ntree = param$ntree, importance = FALSE, ...)
+                               ntree = param$ntree, importance = last, ...)
   },
   
   #Failure probability = share of the first k trees that vote "failed"
@@ -263,11 +263,10 @@ make_seeds <- function(n_resamples) {
 #6d. Folds ---------------------------------------------------------------------
 
 #Fixed folds, so every combination is compared on exactly the same splits.
-#Split by bank (CERT): all quarters of a bank are in the same fold, so the
-#model is never validated on a bank it was trained on.
+#createFolds() is stratified: every fold contains failures.
 set.seed(123)
-cv_folds <- groupKFold(train_data$CERT[tune_idx], k = 10)
-sapply(cv_folds, function(tr) sum(tune_y[-tr] == "failed"))   # failures per fold, all should be > 0
+cv_folds <- createFolds(tune_y, k = 10, returnTrain = TRUE)
+
 ctrl_cv10 <- trainControl(method          = "cv",
                           index           = cv_folds,
                           seeds           = make_seeds(10),
@@ -653,8 +652,7 @@ thr_loocv
 #10b. Early-warning threshold trade-off
 ################################################################################
 
-#Grid up to 0.10, or further if the selected threshold is higher
-threshold_grid <- seq(0, max(0.10, thr_cv10 + 0.02), by = 0.001)
+threshold_grid <- seq(0, 0.10, by = 0.001)
 
 threshold_results <- data.frame(
   threshold = threshold_grid,
