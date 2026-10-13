@@ -1,6 +1,6 @@
-################################################################################
-# TUNED RANDOM FOREST: TUNING, PREDICTION, IMPORTANCE AND REMARKS
-################################################################################
+###################################################################################
+# Random Forest Model Tuning 
+###################################################################################
 library(DBI)
 library(duckdb)
 library(randomForest)
@@ -13,23 +13,20 @@ source("config.R")
 
 dir.create("output/plots", showWarnings = FALSE, recursive = TRUE)
 
-
-################################################################################
+###################################################################################
 #1. Load model dataset
-################################################################################
-#Same data source as the baseline. We read the table and then close
-#the database connection, since it is not needed afterwards.
+###################################################################################
+#Same data source as the baseline...
 
 model_data <- dbReadTable(con, "model_dataset")
 dbDisconnect(con, shutdown = TRUE)
 
 dim(model_data)
 
-
-################################################################################
+###################################################################################
 #2. Features
-################################################################################
-#Identical to the baseline, so that only the tuning differs.
+###################################################################################
+#Identical to the baseline (so that only tuning differs)
 
 feature_cols <- c(
   "equity_ratio",
@@ -50,12 +47,11 @@ feature_cols <- c(
   "log_assets"
 )
 
-
-################################################################################
+###################################################################################
 #3. Target
-################################################################################
-#Bank fails within the next 12 months ("failed") or not ("survived").
-#"failed" is the first level: caret and pROC treat it as the positive class.
+###################################################################################
+#Bank fails within the next 12 months ("failed") or not ("survived")
+#"failed" is the first level: caret and pROC treat it as the positive class
 
 model_data$failed_lbl <- factor(
   ifelse(model_data$failed_12m == 1, "failed", "survived"),
@@ -64,12 +60,10 @@ model_data$failed_lbl <- factor(
 
 table(model_data$failed_lbl)
 
-
-################################################################################
+###################################################################################
 #4. Train / test split
-################################################################################
-#Same train/test split as the baseline (column "sample"), for a fair comparison.
-#IDs are kept for matching later; features (x) & target (y) stored separately.
+###################################################################################
+#Same train/test split as the baseline (column "sample"), for a fair and accurate comparison
 
 train_data <- model_data[model_data$sample == "train", ]
 test_data  <- model_data[model_data$sample == "test", ]
@@ -84,10 +78,9 @@ dim(train_x)
 dim(test_x)
 table(train_y)
 
-
-################################################################################
+###################################################################################
 #5. Tuning settings
-################################################################################
+###################################################################################
 #We tune mtry (variables tried per split) and ntree (number of trees).
 #Baseline: mtry = 4, ntree = 500. Every combination below is tried.
 
@@ -98,37 +91,28 @@ tune_grid  <- expand.grid(mtry = mtry_grid, ntree = ntree_grid)
 default_mtry  <- floor(sqrt(length(feature_cols)))   # baseline values, for labelling
 default_ntree <- 500
 
-#LOOCV settings: subsample size and share of failures in it
+#LOOCV settings:
+#subsample size and share of failures
 loocv_n          <- 500
 loocv_fail_share <- 0.10
 
 #TRUE  = run the tuning (sections 6-7, the slow part)
 #FALSE = load the results saved by an earlier run (takes seconds)
-#After one successful run, set this to FALSE. Set it to TRUE again only if
-#the data or the tuning settings change.
+## makes computing more efficient if already run (manual on/off switch)
 run_tuning <- TRUE
 
-#Memory available for the tuning: set this to your computer's RAM in GB.
-#It decides how many forests are grown at the same time (section 6c).
+#Computing Power available to the tuning (because without limit too many crashes)
 ram_gb <- 32
 
-#Tuning subsample: all failed banks plus this many surviving banks (section 6b).
-#One forest on the full training data needs about 11 GB and many minutes, so
-#tuning on the full data would take many hours on a laptop.
+#Number of surviving banks for the tuning subsample
+##subsample = all failed banks + tune_n_surv
 tune_n_surv <- 20000
 
-################################################################################
+###################################################################################
 #6. Tuning with 10-fold cross validation (caret)
-################################################################################
-#Criterion: ROC-AUC. Accuracy is not useful here, because predicting
-#"survived" for every bank already gives a very high accuracy (see section 11).
-
-#6a. A random forest method for caret that tunes mtry AND ntree ---------------
-
-#caret's "rf" method only tunes mtry, so we define our own method that tunes
-#both. For each mtry, only the 500-tree forest is grown; 100 and 300 trees are
-#evaluated with its first trees. Keep these functions self-contained: in
-#parallel they run in separate R sessions.
+###################################################################################
+#6a. A random forest method for caret that tunes mtry AND ntree ------------------
+##Problem: caret's "rf" only tunes mtry, so we defined our own method that tunes both (with AI's help)
 
 rf_ntree_mtry <- list(
   label      = "Random forest (mtry and ntree)",
@@ -138,12 +122,12 @@ rf_ntree_mtry <- list(
                           class     = c("numeric", "numeric"),
                           label     = c("variables per split", "number of trees")),
   
-  #Default grid (not used here, since we always give tuneGrid)
+  #Default grid (not used, but necessary for caret to sucessfully run)
   grid = function(x, y, len = NULL, search = "grid") {
     expand.grid(mtry = floor(sqrt(ncol(x))), ntree = 500)
   },
   
-  #For each mtry: grow only the largest ntree, the smaller ones are submodels
+  #For each mtry: grow only the largest ntree, the smaller ones are submodels (for efficiency)
   loop = function(grid) {
     loop <- aggregate(ntree ~ mtry, data = grid, FUN = max)
     submodels <- vector("list", nrow(loop))
@@ -154,8 +138,7 @@ rf_ntree_mtry <- list(
     list(loop = loop, submodels = submodels)
   },
   
-  #Grow the forest. last = TRUE only for the final model on all training data:
-  #only that model needs the (slow) permutation importance.
+  #Grow one random forest with the given mtry and ntree (Variable importance only for last model (efficiency)
   fit = function(x, y, wts, param, lev, last, classProbs, ...) {
     randomForest::randomForest(x = x, y = y, mtry = param$mtry,
                                ntree = param$ntree, importance = last, ...)
@@ -187,20 +170,13 @@ rf_ntree_mtry <- list(
     if (is.null(submodels)) out[[1]] else out
   },
   
-  #If two combinations are equally good: prefer fewer trees, then smaller mtry
+  #If two combinations are equally good: fewer trees > smaller mtry
   sort   = function(x) x[order(x$ntree, x$mtry), ],
   levels = function(x) x$classes
 )
 
-#6b. Tuning subsample ----------------------------------------------------------
-
-#The hyperparameters are chosen on a stratified subsample of the training data:
-#all failed banks plus tune_n_surv randomly drawn surviving banks. This makes
-#each forest small enough to grow several at once. ROC-AUC only depends on the
-#ranking of banks, so it is comparable across mtry/ntree even though failures
-#are more frequent in the subsample. The chosen combination is then refit on
-#the FULL training data (section 8b), with the natural class mix, like the
-#baseline.
+#6b. 10-fold tuning subsample ----------------------------------------------------------
+##The hyperparameters are chosen on a subsample of the training data: all failed banks + tune_n_surv draw
 
 fail_idx <- which(train_y == "failed")
 surv_idx <- which(train_y == "survived")
@@ -212,16 +188,8 @@ tune_y   <- train_y[tune_idx]
 
 table(tune_y)   # check: class counts
 
-#6c. Parallel processing and seeds ---------------------------------------------
-
-#caret grows several forests at once, each in its own R session (worker).
-#While growing, randomForest reserves memory for the largest possible tree
-#(about 2 x n nodes per tree, for all trees), roughly 56 bytes x n x ntree,
-#plus temporary copies. Only afterwards is the forest trimmed to its real size.
-#With one worker per core this exceeds the RAM of a laptop, so the number of
-#workers is limited by memory: at most half of ram_gb is used for forests.
-#Because every resample has fixed seeds (make_seeds below), the results are
-#identical for any number of workers; fewer workers only take longer.
+#6c. Parallel processing and seeds (AI suggestion to make computation more efficient) ---------------------------------------------
+##Memory needed per forest & number of forests being run at once
 
 gb_per_forest <- 2 * 56 * nrow(tune_x) * max(ntree_grid) / 1e9   # rough upper estimate
 n_workers     <- max(1, min(parallel::detectCores(logical = FALSE) - 1,
@@ -229,17 +197,9 @@ n_workers     <- max(1, min(parallel::detectCores(logical = FALSE) - 1,
 cat("Approx. GB per forest:", round(gb_per_forest, 2),
     "-> parallel workers:", n_workers, "\n")
 
-#To measure the real memory use of one forest instead of the estimate:
-#  gc(reset = TRUE); tmp <- randomForest(train_x, train_y, ntree = 500); gc()
-#and look at the "max used" column.
 
-#Runs train() on n_workers parallel workers. on.exit() always shuts the
-#workers down, also when train() stops with an error or is interrupted,
-#so no R sessions are left behind holding memory.
-#Progress: the workers write one line per forest to log_file. Watch it in
-#RStudio's Terminal tab with:   tail -f output/tuning_log.txt
-#Lines starting with "-" are finished forests (60 for 10-fold CV, 3000 for
-#LOOCV). Count them with:       grep -c "^-" output/tuning_log.txt
+
+##setting up parallel computing
 train_parallel <- function(..., log_file = "output/tuning_log.txt") {
   if (file.exists(log_file)) file.remove(log_file)
   cl <- makePSOCKcluster(n_workers, outfile = log_file)
@@ -251,7 +211,7 @@ train_parallel <- function(..., log_file = "output/tuning_log.txt") {
   train(...)
 }
 
-#Fixed seeds for every resample, so parallel runs give identical results
+##Fixed seeds for every resample, so parallel runs give identical results (no result interference trough randomness)
 make_seeds <- function(n_resamples) {
   set.seed(123)
   seeds <- vector("list", n_resamples + 1)
@@ -261,9 +221,7 @@ make_seeds <- function(n_resamples) {
 }
 
 #6d. Folds ---------------------------------------------------------------------
-
-#Fixed folds, so every combination is compared on exactly the same splits.
-#createFolds() is stratified: every fold contains failures.
+##How data is split into the ten 10 folds
 set.seed(123)
 cv_folds <- createFolds(tune_y, k = 10, returnTrain = TRUE)
 
@@ -276,10 +234,8 @@ ctrl_cv10 <- trainControl(method          = "cv",
                           verboseIter     = TRUE)          # progress in the log
 
 #6e. Tuning --------------------------------------------------------------------
+##Test all 18 mtry/ntree combinations with 10-fold cross-validation & choose one with highest ROC-AUC
 
-#One call to train() evaluates all mtry/ntree combinations on the tuning
-#subsample. caret's own final model is also fit on the subsample only; the
-#model we use is refit on the full training data in section 8b.
 if (run_tuning) {
   tuning_start <- Sys.time()
   set.seed(123)
@@ -293,18 +249,12 @@ if (run_tuning) {
   gc()   # free the memory used during tuning
 }
 
-
-################################################################################
-#7. Tuning with leave-one-out cv (LOOCV, caret)
-################################################################################
-#One forest per observation is far too slow on the full data, so LOOCV runs on
-#a subsample. It is only used to choose the hyperparameters; the final LOOCV
-#model is refit on all training data.
-
+###################################################################################
+#7. Tuning with leave-one-out cv (caret)
+###################################################################################
 #7a. Subsample -----------------------------------------------------------------
+##small subsample of 500 (determined in 5.0 tuning settings)
 
-#Failures oversampled, so the subsample contains enough of them
-#(fail_idx and surv_idx were defined in section 6b)
 set.seed(123)
 n_fail_sub <- min(length(fail_idx), round(loocv_n * loocv_fail_share))
 n_surv_sub <- min(length(surv_idx), loocv_n - n_fail_sub)
@@ -322,9 +272,9 @@ ctrl_loocv <- trainControl(method          = "LOOCV",
                            returnData      = FALSE,
                            verboseIter     = TRUE)
 
-#7b. Tuning --------------------------------------------------------------------
 
-#LOOCV gives one prediction per bank; caret computes the ROC-AUC from all of them
+#7b. Tuning --------------------------------------------------------------------
+##LOOCV gives one prediction per bank & all ROC-AUC computed
 if (run_tuning) {
   tuning_start <- Sys.time()
   set.seed(123)
@@ -345,10 +295,9 @@ if (run_tuning) {
   load("output/tuning_results.RData")
 }
 
-
-################################################################################
+###################################################################################
 #8. Best combinations and tuning tables
-################################################################################
+###################################################################################
 #8a. Best combination per resampling method ------------------------------------
 
 best_mtry_cv10   <- fit_cv10$bestTune$mtry
@@ -360,14 +309,8 @@ fit_cv10$bestTune
 fit_loocv$bestTune
 
 #8b. Final models on the full training data ------------------------------------
+##optimal combinations now on full training data
 
-#Both tunings used subsamples, so the chosen combinations are refit on the
-#full training data (natural class mix, as the baseline), with permutation
-#importance. Each refit needs about as much memory as a baseline forest and
-#takes a while, so the refits are saved and simply loaded when
-#run_tuning = FALSE. do.trace = 50 prints progress every 50 trees.
-#If both methods chose the same combination, the model is the same and we
-#simply reuse it.
 if (run_tuning) {
   refit_start <- Sys.time()
   set.seed(123)
@@ -391,30 +334,17 @@ if (run_tuning) {
   load("output/rf_final_fits.RData")
 }
 
-################################################################################
 #8c. Out-of-bag prediction diagnostics
-################################################################################
-#Each tree in a random forest is trained on a bootstrap sample of the
-#training data. Observations not included in a tree's bootstrap sample are
-#"out-of-bag" (OOB) observations.
-#
-#randomForest automatically predicts these observations using only trees
-#for which the observation was OOB. This provides an internal estimate of
-#predictive performance without using the external 2021-2023 test sample.
-
-
-#8c.1 OOB error as the number of trees increases -------------------------------
-
-#err.rate contains the cumulative OOB error after each additional tree.
-#For classification it reports overall OOB error and class-specific errors.
+##1. OOB error as the number of trees increases
+###Shows whether more trees would still lower the error.
 
 oob_error <- rf_cv10$err.rate
 
-#Inspect column names and final OOB errors
+###Inspect column names and final OOB errors
 colnames(oob_error)
 tail(oob_error, 1)
 
-#Save numerical results
+###Save numerical results
 oob_error_df <- data.frame(
   trees = 1:nrow(oob_error),
   oob_error
@@ -426,8 +356,7 @@ write.csv(
   row.names = FALSE
 )
 
-
-#Plot overall and class-specific OOB error
+###Plot overall and class-specific OOB error
 png(
   "output/plots/rf_oob_error.png",
   width = 900,
@@ -455,20 +384,16 @@ legend(
 
 dev.off()
 
-
-#8c.2 OOB predicted probabilities ----------------------------------------------
-
-#rf_cv10$votes contains OOB class probabilities.
-#For each bank-quarter, these probabilities are based only on trees for which
-#that observation was NOT included in the bootstrap training sample.
+##2. OOB predicted probabilities ----------------------------------------------
+###Failure probability of each training bank, from the trees that did not see it.
 
 oob_prob <- rf_cv10$votes[, "failed"]
 
-#Check distribution
+###Check distribution
 summary(oob_prob)
 
 
-#8c.3 OOB ROC curve ------------------------------------------------------------
+##3. OOB ROC curve ------------------------------------------------------------
 
 oob_roc <- roc(
   train_y,
@@ -504,10 +429,7 @@ abline(
 
 dev.off()
 
-
-#8c.4 OOB precision-recall curve -----------------------------------------------
-
-#PR-AUC is especially informative because failures are extremely rare.
+##4. OOB precision-recall curve -----------------------------------------------
 
 oob_pr <- pr.curve(
   scores.class0 = oob_prob[train_y == "failed"],
@@ -538,7 +460,7 @@ plot(
   )
 )
 
-#No-skill PR-AUC = prevalence of failures in training sample
+###Dashed line = random guessing -> PR-AUC equals share of failed banks (0.36%).
 train_failure_rate <- mean(train_y == "failed")
 
 abline(
@@ -548,9 +470,9 @@ abline(
 
 dev.off()
 
-#8c. Tuning tables -------------------------------------------------------------
+#8d. Displaying Tuning tables -------------------------------------------------------------
+##ntree, mtry, ROC, ROCSC, sensibility and specificity of the combinations
 
-#ROC-AUC for every ntree/mtry combination. Sens = recall of failed banks.
 cv10_results  <- fit_cv10$results[, c("ntree", "mtry", "ROC", "ROCSD", "Sens", "Spec")]
 loocv_results <- fit_loocv$results[, c("ntree", "mtry", "ROC", "Sens", "Spec")]
 cv10_results  <- cv10_results[order(cv10_results$ntree, cv10_results$mtry), ]
@@ -567,8 +489,7 @@ print(loocv_results, digits = 3, row.names = FALSE)
 write.csv(cv10_results,  "output/rf_tuning_cv10.csv",  row.names = FALSE)
 write.csv(loocv_results, "output/rf_tuning_loocv.csv", row.names = FALSE)
 
-#8d. Plot: ROC-AUC vs mtry, one line per ntree (dashed line = baseline mtry) ---
-
+#8e. Plotting 10-fold CV vs LOOCV (mtry, ROC-AUC)
 ntree_cols <- c('grey60', 'blue', 'black')
 
 png("output/plots/rf_tuning_curves.png", width = 1200, height = 550)
@@ -593,15 +514,10 @@ for (r in 1:2) {
 dev.off()
 par(mfrow = c(1, 1))
 
-
-################################################################################
-#9. (d) Final model and predictions on the test data
-################################################################################
-#Final model: the 10-fold CV tuned forest, refit on the full training data.
-#Its tuning subsample is much larger than the LOOCV one, so its choice is
-#more reliable. The LOOCV model is a robustness check.
-#The test data was not used for any choice so far, so the test results below
-#are an honest estimate of how the model predicts on new data.
+###################################################################################
+#9. Final model and predictions on the test data
+###################################################################################
+#10-fold CV is the final model & LOOCV for robustness check!
 
 final_model <- rf_cv10
 final_model
@@ -610,9 +526,7 @@ final_model
 prob_cv10  <- predict(rf_cv10,  newdata = test_x, type = "prob")[, "failed"]
 prob_loocv <- predict(rf_loocv, newdata = test_x, type = "prob")[, "failed"]
 
-#The baseline predictions were saved by random_forest.R, sorted by risk.
-#We match them back to the test set by bank (CERT) and quarter (report_date).
-
+#The baseline predictions by random_forest.R are sorted by risk, so we match them back to test set by bank & quarter
 baseline_pred <- read.csv("output/rf_test_predictions.csv")
 
 key_test     <- paste(test_data$CERT, as.character(test_data$report_date))
@@ -620,20 +534,18 @@ key_baseline <- paste(baseline_pred$CERT, as.character(baseline_pred$report_date
 
 prob_base <- baseline_pred$predicted_probability[match(key_test, key_baseline)]
 
-#Double check that every test observation found its baseline prediction
+#Stops if test has no baseline prediction
 if (any(is.na(prob_base))) {
   stop("Baseline predictions could not be matched to the test set. ",
        "Check that CERT/report_date formats agree.")
 }
 
 
-################################################################################
+###################################################################################
 #10. Classification thresholds (training data only)
-################################################################################
-#The baseline classifies at 0.5. With rare failures that flags very
-#few banks, so tuned models also get a threshold chosen on the
-#out-of-bag predictions of the training data (Youden's J).
-#The test set is never used to choose a threshold.
+###################################################################################
+#10a. Picking threshold for tuned model--------------------------------------------
+##Failures are rare, so 0.5 flags almost no bank. So for tuned model we choose threshold with highest Youden's J
 
 pick_threshold <- function(rf_model) {
   r <- roc(train_y, rf_model$votes[, "failed"],
@@ -648,9 +560,8 @@ thr_loocv <- pick_threshold(rf_loocv)
 thr_cv10
 thr_loocv
 
-################################################################################
-#10b. Early-warning threshold trade-off
-################################################################################
+#10b. Early-warning threshold trade-off--------------------------------------------
+##Using/Plotting OOB predictions (dotted line = new threshold)
 
 threshold_grid <- seq(0, 0.10, by = 0.001)
 
@@ -725,19 +636,17 @@ legend(
 
 dev.off()
 
-
-################################################################################
-#11. (e) Prediction accuracy: confusion matrices, recall, precision, F1
-################################################################################
-#ROC-AUC from true classes and predicted failure probabilities
+###################################################################################
+#11. Prediction accuracy: confusion matrices, recall, precision, F1
+###################################################################################
+#ROC-AUC (helper step)
 auc_fn <- function(truth, prob) {
   roc_obj <- roc(truth, prob, levels = c("survived", "failed"),
                  direction = "<", quiet = TRUE)
   as.numeric(auc(roc_obj))
 }
 
-#Tuned models are evaluated at 0.5 (same as baseline) and at their tuned threshold.
-
+#Baseline vs 10-fold CV & LOOCV (threshold = 0.5) vs 10-fold CV & LOOCV (threshold = 0.017)
 model_names <- c("Baseline (0.5)",
                  "10-fold CV (0.5)", "10-fold CV (tuned threshold)",
                  "LOOCV (0.5)",      "LOOCV (tuned threshold)")
@@ -787,8 +696,9 @@ for (j in 1:n_models) {
 
 print(results, digits = 3)
 
-#Benchmarks: accuracy when predicting "survived" for every bank, and the
-#PR-AUC of random guessing (= share of failed banks in the test data)
+#Benchmarks: 
+##Accuracy when predicting "survived" for every bank
+##PR-AUC of random guessing
 naive_accuracy <- mean(test_y == "survived")
 naive_pr_auc   <- mean(test_y == "failed")
 naive_accuracy
@@ -822,11 +732,10 @@ dev.off()
 par(mfrow = c(1, 1))
 
 
-################################################################################
+###################################################################################
 #12. ROC and precision-recall curves
-################################################################################
+###################################################################################
 #Curves do not depend on the threshold, so one curve per model.
-
 curve_names <- c("Baseline", "10-fold CV", "LOOCV")
 curve_probs <- list(prob_base, prob_cv10, prob_loocv)
 cols        <- c('black', 'blue', 'orange')
@@ -855,9 +764,7 @@ abline(h = naive_pr_auc, lty = 2)
 legend('topright', legend = curve_names, col = cols, lty = 1)
 dev.off()
 
-#12a. Short discussion of the prediction accuracy -----------------------------
-
-#The key numbers for the discussion, taken from the results above
+#12a. Short discussion of the prediction accuracy (summary of test above) -----------------------------
 final_row <- results[results$model == "10-fold CV (tuned threshold)", ]
 base_row  <- results[results$model == "Baseline (0.5)", ]
 
@@ -871,18 +778,8 @@ cat("Recall at tuned threshold:", round(final_row$recall, 3),
 cat("Accuracy:", round(final_row$accuracy, 4),
     "vs all-survive accuracy:", round(naive_accuracy, 4), "\n")
 
-################################################################################
 #12b. Early-warning-system evaluation
-################################################################################
-#Interpretation:
-#Each bank-quarter receives a predicted probability of failure within the
-#following 12 months. If that probability exceeds the selected threshold,
-#the bank is flagged for supervisory attention.
-#
-#For an early-warning system, a missed failure (false negative) is considered
-#more costly than a false alarm (false positive), because a false alarm leads
-#to additional supervisory attention whereas a missed failure means that an
-#actually failing bank receives no warning.
+##final model as a warning tool (flagged, missed, false alarms)
 
 ews_row <- results[
   results$model == "10-fold CV (tuned threshold)",
@@ -905,16 +802,10 @@ cat("Precision:", round(ews_row$precision, 3), "\n")
 cat("ROC-AUC:", round(ews_row$roc_auc, 3), "\n")
 cat("PR-AUC:", round(ews_row$pr_auc, 3), "\n")
 
-
-################################################################################
-#13. (f) Permutation importance and CAMELS
-################################################################################
-#Permutation importance (randomForest package): for each variable, shuffle its
-#values in the out-of-bag data, predict again, and measure how much the
-#accuracy drops (mean decrease in accuracy). type = 1 selects this measure;
-#scale = TRUE divides by its standard error (as in R_code-forests.R).
-#Management has no variable in our data.
-
+###################################################################################
+#13. Permutation importance and CAMELS
+###################################################################################
+#Which variables matter most (by CAMELS)
 camels <- c(equity_ratio     = "Capital",       tier1_leverage     = "Capital",
             npl_ratio        = "Asset quality", reserve_ratio      = "Asset quality",
             re_loan_share    = "Asset quality", construction_share = "Asset quality",
@@ -975,12 +866,10 @@ legend('bottomright', legend = names(camels_cols), fill = camels_cols)
 dev.off()
 par(mar = c(5.1, 4.1, 4.1, 2.1))
 
-
-################################################################################
+###################################################################################
 #14. Closer look at the top 5 variables
-################################################################################
-
-top5_vars <- top5$variable
+###################################################################################
+top5_vars <- top5$variable #top 5 most important variables (from 13. Permutation importance)
 
 #Summary statistics: failed vs. surviving banks (training data)
 stats <- list(mean   = function(x) mean(x, na.rm = TRUE),
@@ -997,10 +886,7 @@ print(top5_summary)
 
 write.csv(top5_summary, "output/rf_top5_by_outcome.csv", row.names = FALSE)
 
-#Plot per variable: distribution (left) and partial dependence (right).
-#Partial dependence = predicted failure risk as the variable changes, all else equal.
-#do.call() passes the variable name stored in v.
-#A subsample of 1000 banks is enough for smooth curves and keeps this fast.
+#Plot for each top 5 variables (boxplot & partial dependence)
 
 set.seed(123)
 pd_data <- train_x[sample(nrow(train_x), min(1000, nrow(train_x))), ]
@@ -1017,19 +903,15 @@ for (v in top5_vars) {
   plot(pd$x, pd$y, type = 'l', main = paste(v, '- partial dependence'),
        xlab = v, ylab = 'Failure risk (logit scale)')
 }
-
 dev.off()
 par(mfrow = c(1, 1))
 
-
-################################################################################
+###################################################################################
 #15. Save models
-################################################################################
+###################################################################################
 
 saveRDS(final_model, "output/rf_final_model.rds")   # 10-fold CV tuned
 saveRDS(rf_cv10,  "output/rf_tuned_cv10.rds")
 saveRDS(rf_loocv, "output/rf_tuned_loocv.rds")
-
-
 
 print("Random Forest tuning and evaluation complete.")
