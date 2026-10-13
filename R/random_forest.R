@@ -1,6 +1,6 @@
-# ============================================================
+
 # Baseline Random Forest model
-# ============================================================
+
 
 library(DBI)
 library(duckdb)
@@ -27,22 +27,15 @@ dir.create(
 )
 
 
-# ============================================================
-# 1. LOAD MODEL DATASET
-# ============================================================
+#1. Load model data set
 
 model_data <- dbReadTable(
   con,
   "model_dataset"
 )
 
-cat("\nModel dataset loaded.\n")
-cat("Rows:", nrow(model_data), "\n")
 
-
-# ============================================================
-# 2. DEFINE FEATURES
-# ============================================================
+#2. Define features
 
 feature_cols <- c(
   "equity_ratio",
@@ -64,9 +57,7 @@ feature_cols <- c(
 )
 
 
-# ============================================================
-# 3. CONVERT TARGET TO FACTOR
-# ============================================================
+#3. Convert target to factor
 
 model_data <- model_data %>%
   mutate(
@@ -77,9 +68,7 @@ model_data <- model_data %>%
   )
 
 
-# ============================================================
-# 4. TRAIN / TEST SPLIT
-# ============================================================
+#4. Train/Test split
 
 # Feature engineering already created:
 #
@@ -106,9 +95,7 @@ cat("\nTraining observations:", nrow(train_data), "\n")
 cat("Test observations:", nrow(test_data), "\n")
 
 
-# ============================================================
-# 5. CHECK CLASS IMBALANCE
-# ============================================================
+#5. Check Class Imbalance
 
 cat("\nTRAINING CLASS COUNTS\n")
 
@@ -125,16 +112,12 @@ print(
 )
 
 
-# ============================================================
-# 6. SET SEED
-# ============================================================
+#6. Set Seed
 
 set.seed(123)
 
 
-# ============================================================
-# 7. DEFAULT RANDOM FOREST
-# ============================================================
+#7. Default Random Forest
 
 rf_default <- randomForest(
   failed_12m ~ .,
@@ -143,23 +126,11 @@ rf_default <- randomForest(
 )
 
 
-# ============================================================
-# 8. PRINT MODEL
-# ============================================================
+#8. Print Model
 
 print(rf_default)
 
-# ============================================================
-# 8A. OUT-OF-BAG ERROR
-# ============================================================
-
-# Each tree is trained on a bootstrap sample of the training data.
-# Observations not selected for a particular tree are "out-of-bag"
-# (OOB) observations and can be used to evaluate that tree.
-#
-# randomForest automatically stores the OOB error as the forest
-# grows. This allows us to examine whether adding more trees
-# stabilizes the model's prediction error.
+#8a. OOB errors
 
 oob_error <- rf_default$err.rate
 
@@ -207,9 +178,7 @@ ggsave(
   height = 5
 )
 
-# ============================================================
-# OOB ERROR BY NUMBER OF TREES
-# ============================================================
+#OOB errors by number of trees
 
 oob_results <- data.frame(
   trees = 1:nrow(rf_default$err.rate),
@@ -251,9 +220,7 @@ ggsave(
 )
 
 
-# ============================================================
-# 9. PREDICT CLASSES ON TEST DATA
-# ============================================================
+#9. Predict classes on test data
 
 rf_class_pred <- predict(
   rf_default,
@@ -262,9 +229,7 @@ rf_class_pred <- predict(
 )
 
 
-# ============================================================
-# 10. PREDICT FAILURE PROBABILITIES
-# ============================================================
+#10. Predict failure probabilities
 
 rf_prob_pred <- predict(
   rf_default,
@@ -273,9 +238,7 @@ rf_prob_pred <- predict(
 )[, "1"]
 
 
-# ============================================================
-# 11. CONFUSION MATRIX
-# ============================================================
+#11. Confusion Matrix
 
 cm <- confusionMatrix(
   data = rf_class_pred,
@@ -286,9 +249,7 @@ cm <- confusionMatrix(
 print(cm)
 
 
-# ============================================================
-# 12. EXTRACT IMPORTANT METRICS
-# ============================================================
+#12. Extract important data
 
 accuracy <- cm$overall["Accuracy"]
 
@@ -310,9 +271,7 @@ cat("F1:", round(f1, 4), "\n")
 cat("Specificity:", round(specificity, 4), "\n")
 
 
-# ============================================================
-# 13. ROC-AUC
-# ============================================================
+#13. ROC-AUC
 
 roc_object <- roc(
   response = test_data$failed_12m,
@@ -328,9 +287,7 @@ cat(
   "\n"
 )
 
-# ============================================================
-# 14. PR-AUC
-# ============================================================
+#14. PR-AUC
 
 # Precision-Recall AUC is particularly useful because bank
 # failures are extremely rare in our sample.
@@ -402,12 +359,7 @@ plot(
 dev.off()
 
 
-# ============================================================
-# 15. NAIVE ALL-SURVIVE BENCHMARK
-# ============================================================
-
-# If we predict that every bank survives, accuracy will already
-# be extremely high because failures are so rare.
+#15. Naive all surival benchmarks
 
 naive_accuracy <- mean(
   test_data$failed_12m == "0"
@@ -426,9 +378,7 @@ cat(
 )
 
 
-# ============================================================
-# 16. FAILURE PROBABILITY DISTRIBUTIONS
-# ============================================================
+#16. Failure probabability distribution
 
 cat("\nPREDICTED PROBABILITIES - FAILED BANKS\n")
 
@@ -473,9 +423,7 @@ probability_summary <- probability_results %>%
 print(probability_summary)
 
 
-# ============================================================
-# 17. PLOT PREDICTED FAILURE PROBABILITIES
-# ============================================================
+#17. Plot predicted failure probabilities
 
 dir.create(
   "output/plots",
@@ -508,9 +456,6 @@ ggsave(
   height = 5
 )
 
-# ============================================================
-# 18. ADD BANK IDENTIFIERS BACK TO PREDICTIONS
-# ============================================================
 
 # These variables were correctly excluded from model training,
 # but we want them back when interpreting predictions.
@@ -535,9 +480,6 @@ test_results <- test_identifiers %>%
   )
 
 
-# ============================================================
-# 19. TOP-RISK CAPTURE RATE
-# ============================================================
 
 # This measures how many actual failures would be captured if
 # regulators investigated only the riskiest X% of observations.
@@ -598,29 +540,7 @@ cat("\nTOP-RISK CAPTURE RESULTS\n")
 
 print(capture_results)
 
-
-# ============================================================
-# 20. SHOW HIGHEST-RISK OBSERVATIONS
-# ============================================================
-
-cat("\nTOP 20 HIGHEST-RISK BANK-QUARTER OBSERVATIONS\n")
-
-print(
-  test_results %>%
-    select(
-      CERT,
-      NAME,
-      report_date,
-      failed_12m,
-      predicted_probability
-    ) %>%
-    slice_head(n = 20)
-)
-
-
-# ============================================================
-# 21. CHECK ACTUAL FAILED BANKS
-# ============================================================
+#18. Check actual failed banks
 
 failed_bank_results <- test_results %>%
   filter(
@@ -642,9 +562,7 @@ cat("\nACTUAL FAILURES RANKED BY PREDICTED RISK\n")
 
 print(failed_bank_results)
 
-# ============================================================
-# 22. PERMUTATION VARIABLE IMPORTANCE
-# ============================================================
+#19. Permutation Variable Importance
 
 importance_values <- importance(
   rf_default,
@@ -711,9 +629,7 @@ write.csv(
   row.names = FALSE
 )
 
-# ============================================================
-# 24. SAVE NEW RESULTS
-# ============================================================
+#20. Save results
 
 write.csv(
   probability_summary,
@@ -739,7 +655,7 @@ write.csv(
   row.names = FALSE
 )
 
-# 25. Disconnect
+# 21. Disconnect
 dbDisconnect(
   con,
   shutdown = TRUE
