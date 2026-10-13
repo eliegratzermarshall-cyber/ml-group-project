@@ -13,7 +13,7 @@ library(PRROC)     # Precision-Recall curve and AUC calculation
 library(ggplot2)   # Data visualization and plotting
 
 # ============================================================
-# 2. Directory Structure Initialization
+# 2. Directory Structure Initialization (with the help of AI)
 # ============================================================
 dir.create("output", showWarnings = FALSE, recursive = TRUE)
 dir.create("output/plots", showWarnings = FALSE, recursive = TRUE)
@@ -53,7 +53,7 @@ cat("\nTraining observations:", nrow(train_data), "\n")
 cat("Test observations:", nrow(test_data), "\n")
 
 # ============================================================
-# 4. Evaluation Helper Function: Capture Rate
+# 4. Evaluation Helper Function: Capture Rate (with the help of AI)
 # ============================================================
 calculate_capture_rate <- function(data, top_percent) {
   number_to_review <- ceiling(nrow(data) * top_percent)
@@ -115,6 +115,7 @@ log_results <- data.frame(
   pr_auc = as.numeric(log_pr_object$auc.integral)
 )
 
+# Risk ranking and percentile computation (with the help of AI)
 log_test_results <- test_identifiers %>%
   mutate(predicted_probability = log_prob_pred) %>%
   arrange(desc(predicted_probability)) %>%
@@ -151,7 +152,7 @@ cat("\n============================================================\n")
 cat("TRAINING NEURAL NETWORK\n")
 cat("============================================================\n")
 
-# Min-Max Feature Scaling
+# Min-Max Feature Scaling (with the help of AI)
 maxs <- apply(train_data[, feature_cols], MARGIN = 2, max)
 mins <- apply(train_data[, feature_cols], MARGIN = 2, min)
 
@@ -161,7 +162,7 @@ test_scaled <- test_data
 train_scaled[, feature_cols] <- scale(train_data[, feature_cols], center = mins, scale = maxs - mins)
 test_scaled[, feature_cols] <- scale(test_data[, feature_cols], center = mins, scale = maxs - mins)
 
-# Class Imbalance Adjustment via Observation Weights
+# Class Imbalance Adjustment via Observation Weights  (with the help of AI)
 count_0 <- sum(train_scaled$failed_numeric == 0)
 count_1 <- sum(train_scaled$failed_numeric == 1)
 train_weights <- ifelse(train_scaled$failed_numeric == 1, count_0 / count_1, 1)
@@ -184,6 +185,7 @@ nn_class_pred <- factor(ifelse(nn_prob_pred > 0.5, 1, 0), levels = c(0, 1))
 cm_nn <- confusionMatrix(data = nn_class_pred, reference = test_data$failed_12m, positive = "1")
 roc_nn <- auc(roc(response = test_data$failed_12m, predictor = nn_prob_pred, levels = c("0", "1")))
 
+# Integration with PRROC package to handle extreme class imbalance (with the help of AI)
 nn_pr_object <- pr.curve(
   scores.class0 = nn_prob_pred[test_data$failed_12m == "1"],
   scores.class1 = nn_prob_pred[test_data$failed_12m == "0"],
@@ -236,7 +238,7 @@ write.csv(nn_test_results %>% filter(failed_12m == "1"), "output/nn_failed_bank_
 
 
 ################################################################################
-# PART C: Comparative Visualizations & Feature Importance (CAMELS)
+# PART C: Comparative Visualizations & Feature Importance (CAMELS) (with the help of AI)
 ################################################################################
 
 combined_performance <- bind_rows(log_results, nn_results)
