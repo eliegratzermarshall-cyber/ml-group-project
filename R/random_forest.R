@@ -112,7 +112,7 @@ print(
 )
 
 
-#6. Set Seed
+#6. Set Seed for reproducible results
 
 set.seed(123)
 

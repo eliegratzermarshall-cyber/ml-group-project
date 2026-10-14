@@ -181,7 +181,7 @@ rf_ntree_mtry <- list(
 fail_idx <- which(train_y == "failed")
 surv_idx <- which(train_y == "survived")
 
-set.seed(123)
+set.seed(123) #To make sure the results are reproducible
 tune_idx <- c(fail_idx, sample(surv_idx, min(length(surv_idx), tune_n_surv)))
 tune_x   <- train_x[tune_idx, ]
 tune_y   <- train_y[tune_idx]
